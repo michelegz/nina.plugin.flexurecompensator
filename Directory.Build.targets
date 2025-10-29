@@ -1,0 +1,151 @@
+<Project>
+
+	<!-- ========================================================= -->
+	<!--  1. Generate version info from Git                        -->
+	<!-- ========================================================= -->
+	
+	<Target Name="WriteGitVersionAssemblyInfo" BeforeTargets="CoreCompile">
+		<!-- Extract the latest tag -->
+		<Exec Command="git describe --tags --abbrev=0"
+			  ConsoleToMSBuild="true"
+			  IgnoreExitCode="true">
+			<Output TaskParameter="ConsoleOutput" PropertyName="GitTagRaw" />
+			<Output TaskParameter="ExitCode" PropertyName="GitTagExitCode" />
+		</Exec>
+
+		<PropertyGroup>
+			<GitTag Condition="'$(GitTagExitCode)' != '0'">v0.1.0</GitTag>
+			<GitTag Condition="'$(GitTagExitCode)' == '0'">$(GitTagRaw)</GitTag>
+		</PropertyGroup>
+
+		<!-- Count commits since tag -->
+		<Exec Command="git rev-list $(GitTag)..HEAD --count"
+			  ConsoleToMSBuild="true"
+			  IgnoreExitCode="true"
+			  Condition="'$(GitTagExitCode)' == '0'">
+			<Output TaskParameter="ConsoleOutput" PropertyName="CommitsSinceTag" />
+		</Exec>
+
+		<PropertyGroup>
+			<CommitsSinceTag Condition="'$(CommitsSinceTag)' == ''">0</CommitsSinceTag>
+			<CleanTag>$([System.Text.RegularExpressions.Regex]::Replace('$(GitTag)', '^v', ''))</CleanTag>
+			
+			<!-- Parse Major.Minor.Patch -->
+			<Major>$([System.Text.RegularExpressions.Regex]::Match('$(CleanTag)', '^(\d+)').Groups[1].Value)</Major>
+			<Minor>$([System.Text.RegularExpressions.Regex]::Match('$(CleanTag)', '^\d+\.(\d+)').Groups[1].Value)</Minor>
+			<Patch>$([System.Text.RegularExpressions.Regex]::Match('$(CleanTag)', '^\d+\.\d+\.(\d+)').Groups[1].Value)</Patch>
+
+			<Major Condition="'$(Major)' == ''">0</Major>
+			<Minor Condition="'$(Minor)' == ''">1</Minor>
+			<Patch Condition="'$(Patch)' == ''">0</Patch>
+			<BuildNumber>$(CommitsSinceTag)</BuildNumber>
+
+			<!-- Final version numbers -->
+			<AssemblyVersion>$(Major).$(Minor).$(Patch).$(BuildNumber)</AssemblyVersion>
+			<FileVersion>$(Major).$(Minor).$(Patch).$(BuildNumber)</FileVersion>
+			<InformationalVersion>$(Major).$(Minor).$(Patch)+$(BuildNumber)</InformationalVersion>
+		</PropertyGroup>
+
+
+		<!-- Auto-generated assembly info -->
+		<WriteLinesToFile
+    File="Properties/GeneratedAssemblyInfo.cs"
+    Overwrite="true"
+    Lines="// ------------------------------------------------------------------------------
+// &lt;auto-generated&gt;
+//     This file is generated automatically during the build by Directory.Build.targets.
+//     Do not edit manually.
+// &lt;/auto-generated&gt;
+// ------------------------------------------------------------------------------
+
+using System.Reflection%3B
+
+[assembly: AssemblyVersion(&quot;$(AssemblyVersion)&quot;)]
+[assembly: AssemblyFileVersion(&quot;$(FileVersion)&quot;)]" />
+
+	</Target>
+
+	<!-- ========================================================= -->
+	<!--  2. Rename output DLL with version info                   -->
+	<!-- ========================================================= -->
+	
+	<Target Name="RenameOutputWithGitVersion" AfterTargets="Build">
+		<PropertyGroup>
+			<!-- Set new file name -->
+			<VersionedDllName>$(AssemblyName)-$(AssemblyVersion)$(TargetExt)</VersionedDllName>
+			<VersionedDllPath>$(TargetDir)$(VersionedDllName)</VersionedDllPath>
+		</PropertyGroup>
+
+		<Message Text="Renaming $(TargetFileName) -> $(VersionedDllName)" Importance="High" />
+
+		<!-- Copy with new file name -->
+		<Copy SourceFiles="$(TargetPath)" DestinationFiles="$(VersionedDllPath)" OverwriteReadOnlyFiles="true" />
+
+		<!-- Delete original -->
+		<Delete Files="$(TargetPath)" Condition="Exists('$(TargetPath)')" />
+
+		<!-- Update target path if needed for next builds -->
+		<PropertyGroup>
+			<TargetPath>$(VersionedDllPath)</TargetPath>
+		</PropertyGroup>
+	</Target>
+
+	<!-- ========================================================= -->
+	<!--  3. Clean versioned outputs (local + NINA folder)         -->
+	<!-- ========================================================= -->
+	
+	<Target Name="CleanVersionedOutputs" AfterTargets="Clean">
+		<ItemGroup>
+			<!-- Local output -->
+			<VersionedDlls Include="$(TargetDir)$(AssemblyName)-*$(TargetExt)"
+						   Exclude="$(TargetDir)$(AssemblyName)$(TargetExt)" />
+
+			<!-- Plugin folder output -->
+			<PluginVersionedDlls Include="$(LocalAppData)\NINA\Plugins\3.0.0\$(TargetName)\$(AssemblyName)-*$(TargetExt)" />
+		</ItemGroup>
+
+		<Message Text="Removing versioned DLL in $(TargetDir) and in NINA plugins folder" Importance="High" />
+		<Delete Files="@(VersionedDlls)" />
+		<Delete Files="@(PluginVersionedDlls)" />
+	</Target>
+
+
+	<!-- ========================================================= -->
+	<!--  4. Copy the new DLL into NINA’s plugin folder            -->
+	<!-- ========================================================= -->
+	<PropertyGroup>
+		<!-- NINA target version -->
+		<NinaVersion>3.0.0</NinaVersion>
+	</PropertyGroup>
+
+	<Target Name="PostBuildCopyToNina" AfterTargets="RenameOutputWithGitVersion">
+		<PropertyGroup>
+			<PluginDir>$(LocalAppData)\NINA\Plugins\$(NinaVersion)\$(TargetName)</PluginDir>
+		</PropertyGroup>
+
+		<!-- Ensure the plugin directory exists -->
+		<MakeDir Directories="$(PluginDir)" Condition="!Exists('$(PluginDir)')" />
+
+		<!-- Find any previous plugin versions -->
+		<ItemGroup>
+			<OldPluginDlls Include="$(PluginDir)\$(AssemblyName)-*$(TargetExt)" />
+		</ItemGroup>
+
+		<!-- Warn if old versions are found -->
+		<Message Text="Warning: found old plugin versions: %(OldPluginDlls.Identity). They will be removed to avoid NINA conflicts."
+				 Importance="High"
+				 Condition="@(OldPluginDlls->Count()) &gt; 0" />
+
+		<!-- Delete old DLLs -->
+		<Delete Files="@(OldPluginDlls)" Condition="@(OldPluginDlls->Count()) &gt; 0" />
+
+		<!-- Copy the new versioned DLL -->
+		<Message Text="Copying new plugin version to $(PluginDir)" Importance="High" />
+		<Copy SourceFiles="$(TargetPath)"
+			  DestinationFolder="$(PluginDir)"
+			  OverwriteReadOnlyFiles="true" />
+
+		<Message Text="Plugin updated: $(TargetPath) → $(PluginDir)" Importance="High" />
+	</Target>
+
+</Project>

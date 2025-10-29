@@ -1,0 +1,106 @@
+﻿<ResourceDictionary
+    x:Class="Michelegz.NINA.FlexureCompensator.Sequencer.Trigger.PluginItemTemplate"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
+    xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
+    xmlns:local="clr-namespace:Michelegz.NINA.FlexureCompensator.Sequencer.Trigger"
+    xmlns:mini="clr-namespace:NINA.View.Sequencer.MiniSequencer;assembly=NINA.Sequencer"
+
+    xmlns:nina="clr-namespace:NINA.View.Sequencer;assembly=NINA.Sequencer">
+    <!--  This geometrygroup defines a custom SVG to be used with the plugin instruction  -->
+    <GeometryGroup x:Key="FlexureCompensatorSVG">
+        <PathGeometry Figures="M 35.0467,27.2653L 34.8493,36.1147L 27.448,40.9693L 35.8027,43.8907L 38.136,52.432L 43.4947,45.3853L 52.3387,45.8067L 52.0413,45.3853L 47.292,38.536L 50.4267,30.26L 41.9533,32.8067M 35.536,28.3173L 41.8387,33.3747L 49.584,31.0467L 46.7187,38.604L 51.3227,45.2507L 43.2507,44.864L 38.36,51.2973L 36.2293,43.4947L 28.5987,40.828L 35.3547,36.396"/>
+        <PathGeometry Figures="M 9.84933,2.172L 9.636,11.7707L 1.60933,17.036L 10.672,20.2027L 13.1973,29.464L 19.0107,21.828L 28.5987,22.2867L 27.5787,20.8067L 23.1307,14.396L 26.5267,5.416L 17.3333,8.18267M 11.5413,5.80667L 16.9533,10.1507L 23.5933,8.15067L 21.14,14.64L 25.088,20.3387L 18.1613,20.0107L 13.964,25.5267L 12.136,18.8387L 5.588,16.5467L 11.3907,12.7453"/>
+        <PathGeometry Figures="M 15.3387,15.8173C 16.1667,16.224 16.9587,16.6253 17.7187,17.0267"/>
+        <PathGeometry Figures="M 26.3545,22.1219L 29.6029,24.8341L 30.1559,25.4415L 29.6937,25.9219L 29.1407,25.3146L 25.9616,22.6604L 26.3545,22.1219 Z M 31.8416,27.2931L 32.8854,28.4396L 34.9341,31.2783L 34.4136,31.6949L 32.3649,28.8561L 31.3794,27.7736L 31.8416,27.2931 Z M 20.0819,17.9341L 24.3005,20.6329L 23.9714,21.2126L 19.7528,18.5139L 20.0819,17.9341 Z "/>
+        <PathGeometry Figures="M 36.088,33.5413C 36.5573,34.276 37.0213,35.0267 37.5,35.8027"/>
+        <PathGeometry Figures="M 39.9587,39.8067L 34.156,35.604L 37.2867,35.5107L 38.76,32.7453"/>
+    </GeometryGroup>
+
+    <!--  The definition of the plugin style  -->
+    <!--  The DataType has to be defined as the instruction in context  -->
+    <DataTemplate DataType="{x:Type local:FlexureCompensatorTrigger}">
+        <nina:SequenceBlockView DataContext="{Binding}">
+            <nina:SequenceBlockView.SequenceItemContent>
+                <WrapPanel Orientation="Horizontal">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="After exposures" />
+                        <TextBox
+                            MinWidth="40"
+                            Margin="5,0,10,0"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Text="{Binding AfterExposures}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="Plate-solving exposure duration" />
+                        <ninactrl:UnitTextBox
+                            MinWidth="40"
+                            Margin="5,0,0,0"
+                            VerticalAlignment="Center"
+                            TextAlignment="Right"
+                            Text="{Binding PlateSolvingExposureDuration}"
+                            Unit="s" />
+                    </StackPanel>
+                </WrapPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+            <nina:SequenceBlockView.SequenceItemProgressContent>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Text="Exposures" />
+                    <TextBlock
+                        Margin="5,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="{Binding ProgressExposures}" />
+                    <TextBlock VerticalAlignment="Center" Text="/" />
+                    <TextBlock VerticalAlignment="Center" Text="{Binding AfterExposures}" />
+                    <TextBlock VerticalAlignment="Center" Text=" - Shift rate:" />
+                    <TextBlock
+                        Margin="5,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="{Binding ShiftRateRA, StringFormat='{}RA {0:F1}'}"/>
+                    <TextBlock
+                        Margin="5,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="|"/>
+                    <TextBlock
+                        Margin="5,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="{Binding ShiftRateDec, StringFormat='{}Dec {0:F1} arcsec/hr'}"/>
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemProgressContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+
+    <!--  The definition of the plugin style in the mini format on the imaging tab  -->
+    <!--  The Key has to be defined as the fully qualified instruction name and the "_Mini" postfix  -->
+    <DataTemplate x:Key="Michelegz.NINA.FlexureCompensator.Sequencer.Trigger.FlexureCompensatorTrigger_Mini">
+        <mini:MiniTrigger DataContext="{Binding}">
+            <mini:MiniTrigger.TriggerProgressContent>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Text="Exp." />
+                    <TextBlock
+                        Margin="3,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="{Binding ProgressExposures}" />
+                    <TextBlock VerticalAlignment="Center" Text="/" />
+                    <TextBlock VerticalAlignment="Center" Text="{Binding AfterExposures}" />
+                    <TextBlock Margin="5,0,0,0"
+                        VerticalAlignment="Center" Text=":" />
+                    <TextBlock
+                        Margin="5,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="{Binding ShiftRateRA, StringFormat='{}{0:F1}'}"/>
+                    <TextBlock
+                        Margin="3,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="|"/>
+                    <TextBlock
+                        Margin="3,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="{Binding ShiftRateDec, StringFormat='{}{0:F1} arcsec/hr'}"/>
+                </StackPanel>
+            </mini:MiniTrigger.TriggerProgressContent>
+        </mini:MiniTrigger>
+    </DataTemplate>
+</ResourceDictionary>

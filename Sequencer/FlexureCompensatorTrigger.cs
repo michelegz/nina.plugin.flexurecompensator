@@ -330,7 +330,7 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
             PlateSolveParameter param = new PlateSolveParameter() {
                 Binning = refBinning.X,
                 Coordinates = telescopeMediator.GetCurrentPosition(),
-                //DownSampleFactor = FlexureCompensatorMediator.Instance.Plugin.DownSampleFactor,
+                DownSampleFactor = profileService.ActiveProfile.PlateSolveSettings.DownSampleFactor,
                 FocalLength = profileService.ActiveProfile.TelescopeSettings.FocalLength,
                 MaxObjects = profileService.ActiveProfile.PlateSolveSettings.MaxObjects,
                 PixelSize = profileService.ActiveProfile.CameraSettings.PixelSize,

@@ -590,9 +590,14 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
                 }
             }
             
-            CancellationTokenSource ct = new CancellationTokenSource();
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(0, 0), ct.Token);
+            // Use StopShifting only — do NOT use SetShiftRate(Create(0,0)) here.
+            // Create(0,0) has Enabled=true, which sends set_lock_shift_enabled(true) to PHD2.
+            // PHD2 disables "Use Multiple Stars" when lock shift is enabled, and persists
+            // this change to the profile — so multi-star guiding would be permanently lost.
+            // StopShifting sends set_lock_shift_enabled(false), which restores multi-star.
+            var ct = new CancellationTokenSource();
             guiderMediator.StopShifting(ct.Token);
+            ct.Dispose();
             lastCoordinates = null;
             lastLockPosition = null;
             lastDateTime = DateTime.MinValue;
@@ -639,8 +644,13 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
                 }
             }
             
-            CancellationTokenSource ct = new CancellationTokenSource();
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(ShiftRateRA / 3600.0, ShiftRateDec / 3600.0), ct.Token);
+            // Only enable lock shift when there's an actual non-zero rate to apply.
+            // Create(0,0) has Enabled=true which would trigger PHD2 to disable multi-star guiding.
+            if (ShiftRateRA != 0 || ShiftRateDec != 0) {
+                var ct = new CancellationTokenSource();
+                guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(ShiftRateRA / 3600.0, ShiftRateDec / 3600.0), ct.Token);
+                ct.Dispose();
+            }
             lastCoordinates = null;
             lastLockPosition = null;
             lastDateTime = DateTime.MinValue;
@@ -656,9 +666,13 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
             lastDateTime = DateTime.MinValue;
             maxExposureItemDuration = 0;
             Logger.Debug("Entering sequence block - registering event listeners");
-            CancellationTokenSource ct = new CancellationTokenSource();
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(ShiftRateRA / 3600.0, ShiftRateDec / 3600.0), ct.Token);
-            //guiderMediator.StartShifting(ct.Token);
+            // Only enable lock shift when there's an actual non-zero rate to apply.
+            // Create(0,0) has Enabled=true which would trigger PHD2 to disable multi-star guiding.
+            if (ShiftRateRA != 0 || ShiftRateDec != 0) {
+                var ct = new CancellationTokenSource();
+                guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(ShiftRateRA / 3600.0, ShiftRateDec / 3600.0), ct.Token);
+                ct.Dispose();
+            }
             
             // Safely subscribe to events with try-catch to handle potential conflicts with other plugins
             if (!afterMeridianFlipSubscribed) {
@@ -729,11 +743,10 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
                 }
             }
             
-            CancellationTokenSource ct = new CancellationTokenSource();
-            //ShiftRateRA = 0;
-            //ShiftRateDec = 0;
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(0, 0), ct.Token);
+            // Use StopShifting only — see comment in TurnOff() for rationale (PHD2 multi-star).
+            var ct = new CancellationTokenSource();
             guiderMediator.StopShifting(ct.Token);
+            ct.Dispose();
             lastCoordinates = null;
             lastLockPosition = null;
             lastDateTime = DateTime.MinValue;
@@ -771,8 +784,8 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
             maxExposureItemDuration = 0;
             lastImageCount = imageCount;
             RaisePropertyChanged(nameof(ProgressExposures));
+            // Use StopShifting only — see comment in TurnOff() for rationale (PHD2 multi-star).
             var ct = new CancellationTokenSource();
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(0, 0), ct.Token);
             guiderMediator.StopShifting(ct.Token);
             ct.Dispose();
             return Task.CompletedTask;

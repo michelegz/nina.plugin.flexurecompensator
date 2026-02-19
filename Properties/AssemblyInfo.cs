@@ -34,12 +34,12 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyMetadata("License", "MPL-2.0")]
 // The url to the license
 [assembly: AssemblyMetadata("LicenseURL", "https://www.mozilla.org/en-US/MPL/2.0/")]
-// The repository where your pluggin is hosted
+// The repository where your plugin is hosted
 [assembly: AssemblyMetadata("Repository", "https://github.com/michelegz/nina.plugin.flexurecompensator")]
 
 // The following attributes are optional for the official manifest meta data
 
-//[Optional] Your plugin homepage URL - omit if not applicaple
+//[Optional] Your plugin homepage URL - omit if not applicable
 [assembly: AssemblyMetadata("Homepage", "https://github.com/michelegz/nina.plugin.flexurecompensator")]
 
 //[Optional] Common tags that quickly describe your plugin
@@ -111,7 +111,7 @@ in subsequent images.
 
 * The plugin can be configured to ignore drifts that are either too small (e.g. within the circle of uncertainty due to seeing), or too 
 large (e.g. due to sudden ""mirror flop""). These limits can be set in the plugin options page, and expressed in units of pixels of the
-imaging camera: for instance, the default setting is to ignore drifts that have affected the exposure by less than 0.3 pizels, or by more 
+imaging camera: for instance, the default setting is to ignore drifts that have affected the exposure by less than 0.3 pixels, or by more 
 than 5 pixels.
 
 * To reduce the number of measurement exposures taken, and thus improve the imaging efficiency, it is possible to configure the trigger to 
@@ -123,14 +123,14 @@ frame, happened.
 scratch. Depending on the mechanical properties of the focuser, focusing or filter wheel rotation may also cause image shift -- if so, this 
 should not be considered as flexure-induced drift as it happens only between frames, and the drift estimation should be reset. By default,
 the trigger ignores focuser movements and filter changes, but it can be configured to reset the drift estimation upon either, or both, of 
-these events. If you don't have a NINA-controlled focuser or a fiter wheel, these configuration settings are not relevant.
+these events. If you don't have a NINA-controlled focuser or a filter wheel, these configuration settings are not relevant.
 
  >**IMPORTANT:** When configuring the trigger to evaluate drift over more than one sub, care must be taken so that the trigger has a chance to 
- > run through the set number of subs without events that would cause drift estimation reset. For example, if the flexure correction trigger is 
+ > run through the set number of subs without events that would cause drift estimation reset. For example, if the flexure compensator trigger is 
  > configured to take a measurement every 3 light subs, the dithering trigger should be configured to run every 3, 4, or more exposures, and 
  > not more frequently. If focusing causes the drift estimation to reset because it causes image shift, then the sequence should be set so that
  > focusing does not occur more frequently than, in the case of the example above, 3 light subs. When there is more than one event that can 
- > cause drift estimation to be reset, it may be quite complex or impossible to determine the maximum number of subs that the flexure correction
+ > cause drift estimation to be reset, it may be quite complex or impossible to determine the maximum number of subs that the flexure compensator
  > trigger can safely consider. In those cases, it is probably a better idea to set that number to 1, and accept a certain reduction in imaging 
  > efficiency as the price to pay for better image quality.
 

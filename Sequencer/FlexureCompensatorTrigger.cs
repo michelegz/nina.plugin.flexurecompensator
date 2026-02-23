@@ -102,6 +102,14 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
         private double maxExposureItemDuration = 0;
         private bool hasWarnedAboutPixelScale = false;
         private bool hasWarnedAboutNaN = false;
+        
+        // Keep references to event handlers to ensure same instance is used for add/remove
+        private readonly Func<object, AfterMeridianFlipEventArgs, Task> afterMeridianFlipHandler;
+        private readonly Func<object, EventArgs, Task> afterDitherHandler;
+        private readonly Func<object, BeforeImageSavedEventArgs, Task> beforeImageSavedHandler;
+        private bool afterMeridianFlipSubscribed = false;
+        private bool afterDitherSubscribed = false;
+        private bool beforeImageSavedSubscribed = false;
 
         public PlateSolvingStatusVM PlateSolveStatusVM { get; } = new PlateSolvingStatusVM();
 
@@ -134,6 +142,12 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
             this.weatherMediator = weatherMediator;
             this.progress = new Progress<ApplicationStatus>(ProgressStatusUpdate);
             this.running = false;
+            
+            // Initialize event handlers once
+            this.afterMeridianFlipHandler = TelescopeMediator_AfterMeridianFlip;
+            this.afterDitherHandler = GuiderMediator_Dither;
+            this.beforeImageSavedHandler = ImageSaveMediator_BeforeImageSaved;
+            
             this.PropertyChanged += PropertyChangeListener;
             plateSolvingExposureDuration = profileService.ActiveProfile.PlateSolveSettings.ExposureTime;
             afterExposures = 1;
@@ -316,7 +330,7 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
             PlateSolveParameter param = new PlateSolveParameter() {
                 Binning = refBinning.X,
                 Coordinates = telescopeMediator.GetCurrentPosition(),
-                //DownSampleFactor = FlexureCompensatorMediator.Instance.Plugin.DownSampleFactor,
+                DownSampleFactor = profileService.ActiveProfile.PlateSolveSettings.DownSampleFactor,
                 FocalLength = profileService.ActiveProfile.TelescopeSettings.FocalLength,
                 MaxObjects = profileService.ActiveProfile.PlateSolveSettings.MaxObjects,
                 PixelSize = profileService.ActiveProfile.CameraSettings.PixelSize,
@@ -547,12 +561,43 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
 
         protected void TurnOff() {
             Logger.Info("Turning trigger OFF");
-            this.telescopeMediator.AfterMeridianFlip -= TelescopeMediator_AfterMeridianFlip;
-            this.guiderMediator.AfterDither -= GuiderMediator_Dither;
-            this.imageSaveMediator.BeforeImageSaved -= ImageSaveMediator_BeforeImageSaved;
-            CancellationTokenSource ct = new CancellationTokenSource();
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(0, 0), ct.Token);
+            
+            // Safely unsubscribe from events with try-catch to handle potential conflicts with other plugins
+            if (afterMeridianFlipSubscribed) {
+                try {
+                    this.telescopeMediator.AfterMeridianFlip -= afterMeridianFlipHandler;
+                    afterMeridianFlipSubscribed = false;
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to unsubscribe from AfterMeridianFlip: {ex.Message}");
+                }
+            }
+            
+            if (afterDitherSubscribed) {
+                try {
+                    this.guiderMediator.AfterDither -= afterDitherHandler;
+                    afterDitherSubscribed = false;
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to unsubscribe from AfterDither: {ex.Message}");
+                }
+            }
+            
+            if (beforeImageSavedSubscribed) {
+                try {
+                    this.imageSaveMediator.BeforeImageSaved -= beforeImageSavedHandler;
+                    beforeImageSavedSubscribed = false;
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to unsubscribe from BeforeImageSaved: {ex.Message}");
+                }
+            }
+            
+            // Use StopShifting only — do NOT use SetShiftRate(Create(0,0)) here.
+            // Create(0,0) has Enabled=true, which sends set_lock_shift_enabled(true) to PHD2.
+            // PHD2 disables "Use Multiple Stars" when lock shift is enabled, and persists
+            // this change to the profile — so multi-star guiding would be permanently lost.
+            // StopShifting sends set_lock_shift_enabled(false), which restores multi-star.
+            var ct = new CancellationTokenSource();
             guiderMediator.StopShifting(ct.Token);
+            ct.Dispose();
             lastCoordinates = null;
             lastLockPosition = null;
             lastDateTime = DateTime.MinValue;
@@ -562,11 +607,50 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
 
         protected void TurnOn() {
             Logger.Info("Turning trigger ON");
-            this.telescopeMediator.AfterMeridianFlip += TelescopeMediator_AfterMeridianFlip;
-            this.guiderMediator.AfterDither += GuiderMediator_Dither;
-            this.imageSaveMediator.BeforeImageSaved += ImageSaveMediator_BeforeImageSaved;
-            CancellationTokenSource ct = new CancellationTokenSource();
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(ShiftRateRA / 3600.0, ShiftRateDec / 3600.0), ct.Token);
+            
+            // Safely subscribe to events with try-catch to handle potential conflicts with other plugins
+            if (!afterMeridianFlipSubscribed) {
+                try {
+                    this.telescopeMediator.AfterMeridianFlip += afterMeridianFlipHandler;
+                    afterMeridianFlipSubscribed = true;
+                    Logger.Debug("Successfully subscribed to AfterMeridianFlip event");
+                } catch (ArgumentException ex) {
+                    Logger.Error($"Failed to subscribe to AfterMeridianFlip: {ex.Message}");
+                    Logger.Error("This is likely caused by another plugin using incorrect event handler types.");
+                    Logger.Error("Flexure compensation will NOT respond to meridian flips until the conflicting plugin is fixed or removed.");
+                    Notification.ShowWarning("Flexure Compensator: Cannot subscribe to meridian flip events. Check logs for details.");
+                } catch (Exception ex) {
+                    Logger.Error($"Unexpected error subscribing to AfterMeridianFlip: {ex.Message}");
+                }
+            }
+            
+            if (!afterDitherSubscribed) {
+                try {
+                    this.guiderMediator.AfterDither += afterDitherHandler;
+                    afterDitherSubscribed = true;
+                    Logger.Debug("Successfully subscribed to AfterDither event");
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to subscribe to AfterDither: {ex.Message}");
+                }
+            }
+            
+            if (!beforeImageSavedSubscribed) {
+                try {
+                    this.imageSaveMediator.BeforeImageSaved += beforeImageSavedHandler;
+                    beforeImageSavedSubscribed = true;
+                    Logger.Debug("Successfully subscribed to BeforeImageSaved event");
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to subscribe to BeforeImageSaved: {ex.Message}");
+                }
+            }
+            
+            // Only enable lock shift when there's an actual non-zero rate to apply.
+            // Create(0,0) has Enabled=true which would trigger PHD2 to disable multi-star guiding.
+            if (ShiftRateRA != 0 || ShiftRateDec != 0) {
+                var ct = new CancellationTokenSource();
+                guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(ShiftRateRA / 3600.0, ShiftRateDec / 3600.0), ct.Token);
+                ct.Dispose();
+            }
             lastCoordinates = null;
             lastLockPosition = null;
             lastDateTime = DateTime.MinValue;
@@ -582,25 +666,87 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
             lastDateTime = DateTime.MinValue;
             maxExposureItemDuration = 0;
             Logger.Debug("Entering sequence block - registering event listeners");
-            CancellationTokenSource ct = new CancellationTokenSource();
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(ShiftRateRA / 3600.0, ShiftRateDec / 3600.0), ct.Token);
-            //guiderMediator.StartShifting(ct.Token);
-            telescopeMediator.AfterMeridianFlip += TelescopeMediator_AfterMeridianFlip;
-            this.guiderMediator.AfterDither += GuiderMediator_Dither;
-            imageSaveMediator.BeforeImageSaved += ImageSaveMediator_BeforeImageSaved;
+            // Only enable lock shift when there's an actual non-zero rate to apply.
+            // Create(0,0) has Enabled=true which would trigger PHD2 to disable multi-star guiding.
+            if (ShiftRateRA != 0 || ShiftRateDec != 0) {
+                var ct = new CancellationTokenSource();
+                guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(ShiftRateRA / 3600.0, ShiftRateDec / 3600.0), ct.Token);
+                ct.Dispose();
+            }
+            
+            // Safely subscribe to events with try-catch to handle potential conflicts with other plugins
+            if (!afterMeridianFlipSubscribed) {
+                try {
+                    telescopeMediator.AfterMeridianFlip += afterMeridianFlipHandler;
+                    afterMeridianFlipSubscribed = true;
+                    Logger.Debug("Successfully subscribed to AfterMeridianFlip event");
+                } catch (ArgumentException ex) {
+                    Logger.Error($"Failed to subscribe to AfterMeridianFlip: {ex.Message}");
+                    Logger.Error("This is likely caused by another plugin using incorrect event handler types.");
+                    Logger.Error("Flexure compensation will NOT respond to meridian flips until the conflicting plugin is fixed or removed.");
+                } catch (Exception ex) {
+                    Logger.Error($"Unexpected error subscribing to AfterMeridianFlip: {ex.Message}");
+                }
+            }
+            
+            if (!afterDitherSubscribed) {
+                try {
+                    this.guiderMediator.AfterDither += afterDitherHandler;
+                    afterDitherSubscribed = true;
+                    Logger.Debug("Successfully subscribed to AfterDither event");
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to subscribe to AfterDither: {ex.Message}");
+                }
+            }
+            
+            if (!beforeImageSavedSubscribed) {
+                try {
+                    imageSaveMediator.BeforeImageSaved += beforeImageSavedHandler;
+                    beforeImageSavedSubscribed = true;
+                    Logger.Debug("Successfully subscribed to BeforeImageSaved event");
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to subscribe to BeforeImageSaved: {ex.Message}");
+                }
+            }
+            
             running = true;
         }
 
         public override void SequenceBlockTeardown() {
             Logger.Debug("Exiting sequence block - un-registering event listeners and stopping shifting");
-            this.telescopeMediator.AfterMeridianFlip -= TelescopeMediator_AfterMeridianFlip;
-            this.guiderMediator.AfterDither -= GuiderMediator_Dither;
-            this.imageSaveMediator.BeforeImageSaved -= ImageSaveMediator_BeforeImageSaved;
-            CancellationTokenSource ct = new CancellationTokenSource();
-            //ShiftRateRA = 0;
-            //ShiftRateDec = 0;
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(0, 0), ct.Token);
+            
+            // Safely unsubscribe from events with try-catch to handle potential conflicts with other plugins
+            if (afterMeridianFlipSubscribed) {
+                try {
+                    this.telescopeMediator.AfterMeridianFlip -= afterMeridianFlipHandler;
+                    afterMeridianFlipSubscribed = false;
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to unsubscribe from AfterMeridianFlip: {ex.Message}");
+                }
+            }
+            
+            if (afterDitherSubscribed) {
+                try {
+                    this.guiderMediator.AfterDither -= afterDitherHandler;
+                    afterDitherSubscribed = false;
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to unsubscribe from AfterDither: {ex.Message}");
+                }
+            }
+            
+            if (beforeImageSavedSubscribed) {
+                try {
+                    this.imageSaveMediator.BeforeImageSaved -= beforeImageSavedHandler;
+                    beforeImageSavedSubscribed = false;
+                } catch (Exception ex) {
+                    Logger.Error($"Failed to unsubscribe from BeforeImageSaved: {ex.Message}");
+                }
+            }
+            
+            // Use StopShifting only — see comment in TurnOff() for rationale (PHD2 multi-star).
+            var ct = new CancellationTokenSource();
             guiderMediator.StopShifting(ct.Token);
+            ct.Dispose();
             lastCoordinates = null;
             lastLockPosition = null;
             lastDateTime = DateTime.MinValue;
@@ -638,8 +784,8 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
             maxExposureItemDuration = 0;
             lastImageCount = imageCount;
             RaisePropertyChanged(nameof(ProgressExposures));
+            // Use StopShifting only — see comment in TurnOff() for rationale (PHD2 multi-star).
             var ct = new CancellationTokenSource();
-            guiderMediator.SetShiftRate(SiderealShiftTrackingRate.Create(0, 0), ct.Token);
             guiderMediator.StopShifting(ct.Token);
             ct.Dispose();
             return Task.CompletedTask;
@@ -690,15 +836,63 @@ namespace Michelegz.NINA.FlexureCompensator.Sequencer.Trigger {
             } else if (!guiderInfo.CanGetLockPosition) {
                 i.Add("Guider doesn't support reading lock position");
             }
+            
+            // Check if telescope events are corrupted by testing subscription
+            if (telescopeInfo.Connected) {
+                try {
+                    // Create a test handler
+                    Func<object, AfterMeridianFlipEventArgs, Task> testHandler = (sender, args) => Task.CompletedTask;
+                    
+                    // Try to subscribe
+                    telescopeMediator.AfterMeridianFlip += testHandler;
+                    
+                    // If we get here, subscription worked - clean up
+                    telescopeMediator.AfterMeridianFlip -= testHandler;
+                    
+                    Logger.Debug("Telescope event system validation: OK");
+                } catch (ArgumentException ex) {
+                    Logger.Warning($"Telescope event system appears corrupted: {ex.Message}");
+                    Logger.Warning("This is typically caused by another plugin with incompatible event handlers.");
+                    i.Add("Telescope events corrupted - meridian flip event subscription for Flexure Correction will not work (see logs)");
+                } catch (Exception ex) {
+                    Logger.Error($"Unexpected error during telescope event validation: {ex.Message}");
+                }
+            }
+            
             Issues = i;
             return i.Count == 0;
         }
 
         public void Dispose() {
             if (!closed) {
-                this.telescopeMediator.AfterMeridianFlip -= TelescopeMediator_AfterMeridianFlip;
-                this.guiderMediator.AfterDither -= GuiderMediator_Dither;
-                this.imageSaveMediator.BeforeImageSaved -= ImageSaveMediator_BeforeImageSaved;
+                // Safely unsubscribe from events with try-catch to handle potential conflicts with other plugins
+                if (afterMeridianFlipSubscribed) {
+                    try {
+                        this.telescopeMediator.AfterMeridianFlip -= afterMeridianFlipHandler;
+                        afterMeridianFlipSubscribed = false;
+                    } catch (Exception ex) {
+                        Logger.Error($"Failed to unsubscribe from AfterMeridianFlip during dispose: {ex.Message}");
+                    }
+                }
+                
+                if (afterDitherSubscribed) {
+                    try {
+                        this.guiderMediator.AfterDither -= afterDitherHandler;
+                        afterDitherSubscribed = false;
+                    } catch (Exception ex) {
+                        Logger.Error($"Failed to unsubscribe from AfterDither during dispose: {ex.Message}");
+                    }
+                }
+                
+                if (beforeImageSavedSubscribed) {
+                    try {
+                        this.imageSaveMediator.BeforeImageSaved -= beforeImageSavedHandler;
+                        beforeImageSavedSubscribed = false;
+                    } catch (Exception ex) {
+                        Logger.Error($"Failed to unsubscribe from BeforeImageSaved during dispose: {ex.Message}");
+                    }
+                }
+                
                 try {
                     dummyCancellationSource?.Cancel();
                 } catch { }
